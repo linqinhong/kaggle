@@ -1,0 +1,475 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[119]:
+
+
+import re
+import string
+import nltk.corpus
+from nltk.corpus import stopwords
+import pandas as pd
+import numpy as np
+import warnings
+from datasets import Dataset
+
+
+# In[120]:
+
+
+warnings.filterwarnings("ignore")
+
+
+# In[121]:
+
+
+train_df=pd.read_csv("/data/linqinhong/kaggle/tweet_disaster/train.csv",dtype={'id': np.int16, 'target': np.int8})
+test_df=pd.read_csv("/data/linqinhong/kaggle/tweet_disaster/test.csv",dtype={'id': np.int16})
+
+
+# In[122]:
+
+
+print(train_df.shape)
+print(test_df.shape)
+
+
+# In[123]:
+
+
+train_df.drop_duplicates("text",inplace=True)
+
+
+# In[124]:
+
+
+print(train_df.shape)
+print(test_df.shape)
+
+
+# In[125]:
+
+
+train_df["text"].fillna("",inplace=True)
+train_df["location"].fillna("",inplace=True)
+train_df["keyword"].fillna("",inplace=True)
+test_df["text"].fillna("",inplace=True)
+test_df["location"].fillna("",inplace=True)
+test_df["keyword"].fillna("",inplace=True)
+
+
+# In[126]:
+
+
+train_df["text"]=train_df["keyword"]+train_df["text"]
+test_df["text"]=test_df["keyword"]+test_df["text"]
+
+
+# In[127]:
+
+
+from emot import UNICODE_EMOJI
+def remove_emoji(text):
+    for emot in UNICODE_EMOJI:
+        text.replace(emot," ".join(UNICODE_EMOJI[emot].replace(":","").split()))
+    return text
+
+
+# In[128]:
+
+
+train_df["text"]=train_df["text"].apply(remove_emoji)
+test_df["text"]=test_df["text"].apply(remove_emoji)
+
+
+# In[129]:
+
+
+from bs4 import BeautifulSoup
+def remove_html(text):
+    soup=BeautifulSoup(text)
+    return soup.get_text()
+
+
+# In[130]:
+
+
+train_df["text"]=train_df["text"].apply(remove_html)
+test_df["text"]=test_df["text"].apply(remove_html)
+
+
+# In[131]:
+
+
+def remove_mention(text):
+    pattern=re.compile(r"@\w+")
+    return re.sub(pattern,"",text)
+
+
+# In[132]:
+
+
+train_df["text"]=train_df["text"].apply(remove_mention)
+test_df["text"]=test_df["text"].apply(remove_mention)
+
+
+# In[133]:
+
+
+import contractions
+
+
+# In[134]:
+
+
+train_df["text"]=train_df["text"].apply(contractions.fix)
+test_df["text"]=test_df["text"].apply(contractions.fix)
+
+
+# In[135]:
+
+
+from nltk.corpus import stopwords
+def remove_stopwords(text):
+    stop=set(stopwords.words("english"))
+    return " ".join([word for word in str(text).split() if word not in stop])
+
+
+# In[136]:
+
+
+train_df["text"]=train_df["text"].apply(remove_stopwords)
+test_df["text"]=test_df["text"].apply(remove_stopwords)
+
+
+# In[137]:
+
+
+def remove_url(text):
+    pattern=re.compile(r"https?://(www\.)?(\w+\.)(\w+)(/\w*)?")
+    return re.sub(pattern,"",text)
+
+
+# In[138]:
+
+
+train_df["text"]=train_df["text"].apply(remove_url)
+test_df["text"]=test_df["text"].apply(remove_url)
+
+
+# In[139]:
+
+
+def remove_space(text):
+    pattern=re.compile(r" +")
+    return re.sub(pattern," ",text)
+
+
+# In[140]:
+
+
+train_df["text"]=train_df["text"].apply(remove_space)
+test_df["text"]=test_df["text"].apply(remove_space)
+
+
+# In[141]:
+
+
+def remove_uni(text):
+    return text.encode("ascii","ignore").decode()
+
+
+# In[142]:
+
+
+train_df["text"]=train_df["text"].apply(remove_uni)
+test_df["text"]=test_df["text"].apply(remove_uni)
+
+
+# In[143]:
+
+
+from nltk import WordNetLemmatizer
+from nltk import pos_tag
+lemma=WordNetLemmatizer()
+def lemmatization(text):
+    return " ".join([lemma.lemmatize(word) for word in text.split()])
+
+
+# In[144]:
+
+
+train_df["text"]=train_df["text"].apply(lemmatization)
+test_df["text"]=test_df["text"].apply(lemmatization)
+
+
+# 
+
+# In[145]:
+
+
+train_df["text"]=train_df["text"].str.lower()
+test_df["text"]=test_df["text"].str.lower()
+
+
+# In[146]:
+
+
+import string
+def remove_punctuation(text):
+    return re.sub('[%s]'%re.escape(string.punctuation),"",text)
+
+
+# In[147]:
+
+
+train_df["text"]=train_df["text"].apply(remove_punctuation)
+test_df["text"]=test_df["text"].apply(remove_punctuation)
+
+
+# In[148]:
+
+
+from datasets import Dataset
+train_dataset=Dataset.from_pandas(train_df[:7000])
+val_dataset=Dataset.from_pandas(train_df[7000:])
+test_dataset=Dataset.from_pandas(test_df)
+
+
+# In[149]:
+
+
+from transformers import AutoTokenizer,AutoModelForSequenceClassification
+checkpoint="bert-base-uncased"
+tokenizer=AutoTokenizer.from_pretrained(checkpoint)
+model=AutoModelForSequenceClassification.from_pretrained(checkpoint)
+def tokenize_function(example):
+  return tokenizer(example['text'], truncation=True)
+
+
+# In[150]:
+
+
+train_dataset=train_dataset.map(tokenize_function,batched=True)
+test_dataset=test_dataset.map(tokenize_function,batched=True)
+val_dataset=val_dataset.map(tokenize_function,batched=True)
+
+
+# In[151]:
+
+
+train_dataset.column_names
+
+
+# In[152]:
+
+
+train_dataset=train_dataset.remove_columns(['id','keyword','location','text','__index_level_0__'])
+val_dataset=val_dataset.remove_columns(['id','keyword','location','text','__index_level_0__'])
+test_dataset=test_dataset.remove_columns(['id','location','keyword','text'])
+
+
+# In[153]:
+
+
+test_dataset
+
+
+# In[154]:
+
+
+train_dataset=train_dataset.rename_column("target","labels")
+val_dataset=val_dataset.rename_column("target","labels")
+
+
+# In[155]:
+
+
+train_dataset
+
+
+# In[156]:
+
+
+from transformers import DataCollatorWithPadding
+data_collator=DataCollatorWithPadding(tokenizer=tokenizer)
+
+
+# In[157]:
+
+
+train_dataset.set_format('torch')
+val_dataset.set_format('torch')
+test_dataset.set_format('torch')
+
+
+# In[158]:
+
+
+from torch.utils.data import DataLoader
+train_data=DataLoader(train_dataset,shuffle=True,batch_size=64,collate_fn=data_collator)
+val_data=DataLoader(val_dataset,shuffle=True,batch_size=64,collate_fn=data_collator)
+test_data=DataLoader(test_dataset,shuffle=True,batch_size=8,collate_fn=data_collator)
+
+
+# In[159]:
+
+
+for batch in train_data:
+  print({k:v.shape for k, v in batch.items()})
+  break
+
+
+# In[160]:
+
+
+import torch
+
+
+# In[161]:
+
+
+model=AutoModelForSequenceClassification.from_pretrained(checkpoint,num_labels=2,)
+
+
+# In[162]:
+
+
+from transformers import AdamW
+optimizer=AdamW(model.parameters(),lr=5e-5)
+
+
+# In[163]:
+
+
+epchoes=10
+num_step=epchoes*len(train_data)
+from transformers import get_scheduler
+lr_scheduler=get_scheduler('linear',num_warmup_steps=0,optimizer=optimizer,num_training_steps=num_step)
+
+
+# In[164]:
+
+
+import torch
+device=torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+
+# In[165]:
+
+
+from tqdm.auto import  tqdm
+import evaluate
+metric=evaluate.load("accuracy")
+
+
+# In[166]:
+
+
+device
+
+
+# In[167]:
+
+
+model.to(device)
+progress_bar=tqdm(range(num_step))
+for epoch in range(epchoes):
+    model.train()
+    loss=0
+    for batch in train_data:
+        batch={k:v.to(device) for k,v in batch.items()}
+        output=model(**batch)
+        loss=output.loss
+        loss.backward()
+        optimizer.step()
+        lr_scheduler.step()
+        optimizer.zero_grad()
+        progress_bar.update(1)
+    model.eval()
+    for batch in val_data:
+        batch={k:v.to(device) for k,v in batch.items()}
+        output=model(**batch)
+        logits=output.logits
+        preds=torch.argmax(logits,dim=-1)
+        metric.add_batch(predictions=preds,references=batch['labels'])
+    print(metric.compute())
+
+
+# In[168]:
+
+
+model.eval()
+
+
+# In[169]:
+
+
+preds=[]
+
+
+# In[170]:
+
+
+for batch in test_data:
+    batch={k:v.to(device) for k,v in batch.items()}
+    output=model(**batch)
+    logits=output.logits
+    pred=torch.argmax(logits,dim=-1)
+    preds.append(pred)
+
+
+# In[171]:
+
+
+preds
+
+
+# In[172]:
+
+
+original_test_df=pd.read_csv('/data/linqinhong/kaggle/tweet_disaster/test.csv')
+
+
+# In[173]:
+
+
+predictions=torch.cat([e for e in preds])
+
+
+# In[174]:
+
+
+predictions
+
+
+# In[175]:
+
+
+original_test_df['target']=predictions.to('cpu').numpy()
+
+
+# In[176]:
+
+
+original_test_df
+
+
+# In[178]:
+
+
+original_test_df.drop(['text','keyword','location'],axis=1,inplace=True)
+original_test_df.to_csv('/data/linqinhong/kaggle/tweet_disaster/submission.csv',index=False)
+
+
+# In[181]:
+
+
+train_df
+
+
+# In[ ]:
+
+
+
+
